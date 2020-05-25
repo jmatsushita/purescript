@@ -10,10 +10,14 @@ module Language.PureScript.Externs
   , ExternsFixity(..)
   , ExternsTypeFixity(..)
   , ExternsDeclaration(..)
+  , ExternsSourceAnn(..)
+  , externsFileDeclarations
   , externsIsCurrentVersion
   , moduleToExternsFile
   , applyExternsFileToEnvironment
   , externsFileName
+  , sourceAnnToExterns
+  , sourceAnnFromExterns
   ) where
 
 import Prelude.Compat
@@ -30,6 +34,7 @@ import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NEL
 
 import Language.PureScript.AST
+import Language.PureScript.Comments
 import Language.PureScript.Crash
 import Language.PureScript.Environment
 import Language.PureScript.Names
@@ -56,7 +61,7 @@ data ExternsFile = ExternsFile
   -- ^ List of operators and their fixities
   , efTypeFixities :: [ExternsTypeFixity]
   -- ^ List of type operators and their fixities
-  , efDeclarations :: [ExternsDeclaration]
+  , efDeclarations :: [ExternsDeclaration ExternsSourceAnn]
   -- ^ List of type and value declaration
   , efSourceSpan :: SourceSpan
   -- ^ Source span for error reporting
@@ -107,12 +112,12 @@ data ExternsTypeFixity = ExternsTypeFixity
 
 instance Serialise ExternsTypeFixity
 
--- | A type or value declaration appearing in an externs file
-data ExternsDeclaration =
+-- | A type or value declaration appearing in an externs file.
+data ExternsDeclaration a =
   -- | A type declaration
     EDType
       { edTypeName                :: ProperName 'TypeName
-      , edTypeKind                :: SourceType
+      , edTypeKind                :: Type a
       , edTypeDeclarationKind     :: TypeKind
       }
   -- | A role declaration
@@ -123,28 +128,28 @@ data ExternsDeclaration =
   -- | A type synonym
   | EDTypeSynonym
       { edTypeSynonymName         :: ProperName 'TypeName
-      , edTypeSynonymArguments    :: [(Text, Maybe SourceType)]
-      , edTypeSynonymType         :: SourceType
+      , edTypeSynonymArguments    :: [(Text, Maybe (Type a))]
+      , edTypeSynonymType         :: Type a
       }
   -- | A data constructor
   | EDDataConstructor
       { edDataCtorName            :: ProperName 'ConstructorName
       , edDataCtorOrigin          :: DataDeclType
       , edDataCtorTypeCtor        :: ProperName 'TypeName
-      , edDataCtorType            :: SourceType
+      , edDataCtorType            :: Type a
       , edDataCtorFields          :: [Ident]
       }
   -- | A value declaration
   | EDValue
       { edValueName               :: Ident
-      , edValueType               :: SourceType
+      , edValueType               :: Type a
       }
   -- | A type class declaration
   | EDClass
       { edClassName               :: ProperName 'ClassName
-      , edClassTypeArguments      :: [(Text, Maybe SourceType)]
-      , edClassMembers            :: [(Ident, SourceType)]
-      , edClassConstraints        :: [SourceConstraint]
+      , edClassTypeArguments      :: [(Text, Maybe (Type a))]
+      , edClassMembers            :: [(Ident, Type a)]
+      , edClassConstraints        :: [Constraint a]
       , edFunctionalDependencies  :: [FunctionalDependency]
       , edIsEmpty                 :: Bool
       }
@@ -152,16 +157,47 @@ data ExternsDeclaration =
   | EDInstance
       { edInstanceClassName       :: Qualified (ProperName 'ClassName)
       , edInstanceName            :: Ident
-      , edInstanceForAll          :: [(Text, SourceType)]
-      , edInstanceKinds           :: [SourceType]
-      , edInstanceTypes           :: [SourceType]
-      , edInstanceConstraints     :: Maybe [SourceConstraint]
+      , edInstanceForAll          :: [(Text, Type a)]
+      , edInstanceKinds           :: [Type a]
+      , edInstanceTypes           :: [Type a]
+      , edInstanceConstraints     :: Maybe [Constraint a]
       , edInstanceChain           :: [Qualified Ident]
       , edInstanceChainIndex      :: Integer
       }
+  deriving (Show, Generic, Functor)
+
+instance Serialise a => Serialise (ExternsDeclaration a)
+
+-- | Like SourceAnn, except that it doesn't include the file name. This way we
+-- avoid having multiple copies of the file name inside an externs file,
+-- which cuts down on file size and parsing time.
+data ExternsSourceAnn = ExternsSourceAnn
+  { esaStart :: SourcePos
+  , esaEnd :: SourcePos
+  , esaComments :: [Comment]
+  }
   deriving (Show, Generic)
 
-instance Serialise ExternsDeclaration
+instance Serialise ExternsSourceAnn
+
+sourceAnnToExterns :: SourceAnn -> ExternsSourceAnn
+sourceAnnToExterns (ss, comments) =
+  ExternsSourceAnn
+    { esaStart = spanStart ss
+    , esaEnd = spanEnd ss
+    , esaComments = comments
+    }
+
+-- | We need to provide a source file name to reconstruct a SourceAnn.
+sourceAnnFromExterns :: String -> ExternsSourceAnn -> SourceAnn
+sourceAnnFromExterns spanName esa =
+  ( SourceSpan
+      { spanName = spanName
+      , spanStart = esaStart esa
+      , spanEnd = esaEnd esa
+      }
+  , esaComments esa
+  )
 
 -- | Check whether the version in an externs file matches the currently running
 -- version.
@@ -171,9 +207,10 @@ externsIsCurrentVersion ef =
 
 -- | Convert an externs file back into a module
 applyExternsFileToEnvironment :: ExternsFile -> Environment -> Environment
-applyExternsFileToEnvironment ExternsFile{..} = flip (foldl' applyDecl) efDeclarations
+applyExternsFileToEnvironment ef@ExternsFile{..} =
+  flip (foldl' applyDecl) $ externsFileDeclarations ef
   where
-  applyDecl :: Environment -> ExternsDeclaration -> Environment
+  applyDecl :: Environment -> ExternsDeclaration SourceAnn -> Environment
   applyDecl env (EDType pn kind tyKind) = env { types = M.insert (qual pn) (kind, tyKind) (types env) }
   applyDecl env (EDRole pn roles) = env { roleDeclarations = M.insert (qual pn) roles (roleDeclarations env) }
   applyDecl env (EDTypeSynonym pn args ty) = env { typeSynonyms = M.insert (qual pn) (args, ty) (typeSynonyms env) }
@@ -206,8 +243,11 @@ moduleToExternsFile (Module ss _ mn ds (Just exps)) env = ExternsFile{..}
   efImports       = mapMaybe importDecl ds
   efFixities      = mapMaybe fixityDecl ds
   efTypeFixities  = mapMaybe typeFixityDecl ds
-  efDeclarations  = concatMap toExternsDeclaration efExports ++ mapMaybe roleDecl ds
+  efDeclarations  = map toExterns $ concatMap toExternsDeclaration efExports ++ mapMaybe roleDecl ds
   efSourceSpan    = ss
+
+  toExterns :: Functor f => f SourceAnn -> f ExternsSourceAnn
+  toExterns = fmap sourceAnnToExterns
 
   fixityDecl :: Declaration -> Maybe ExternsFixity
   fixityDecl (ValueFixityDeclaration _ (Fixity assoc prec) name op) =
@@ -226,11 +266,11 @@ moduleToExternsFile (Module ss _ mn ds (Just exps)) env = ExternsFile{..}
   importDecl (ImportDeclaration _ m mt qmn) = Just (ExternsImport m mt qmn)
   importDecl _ = Nothing
 
-  roleDecl :: Declaration -> Maybe ExternsDeclaration
+  roleDecl :: Declaration -> Maybe (ExternsDeclaration SourceAnn)
   roleDecl (RoleDeclaration (RoleDeclarationData _ name roles)) = Just (EDRole name roles)
   roleDecl _ = Nothing
 
-  toExternsDeclaration :: DeclarationRef -> [ExternsDeclaration]
+  toExternsDeclaration :: DeclarationRef -> [ExternsDeclaration SourceAnn]
   toExternsDeclaration (TypeRef _ pn dctors) =
     case Qualified (Just mn) pn `M.lookup` types env of
       Nothing -> internalError "toExternsDeclaration: no kind in toExternsDeclaration"
@@ -265,6 +305,14 @@ moduleToExternsFile (Module ss _ mn ds (Just exps)) env = ExternsFile{..}
       , TypeClassDictionaryInScope{..} <- NEL.toList nel
       ]
   toExternsDeclaration _ = []
+
+-- | Gets all the declarations in an externs file together with expanded source
+-- annotations.
+externsFileDeclarations :: ExternsFile -> [ExternsDeclaration SourceAnn]
+externsFileDeclarations ExternsFile{..} = map fromExterns efDeclarations
+  where
+  fromExterns :: Functor f => f ExternsSourceAnn -> f SourceAnn
+  fromExterns = fmap (sourceAnnFromExterns (spanName efSourceSpan))
 
 externsFileName :: FilePath
 externsFileName = "externs.cbor"

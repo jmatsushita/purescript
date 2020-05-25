@@ -57,12 +57,12 @@ desugarTypeClasses externs = flip evalStateT initialState . traverse desugarModu
       , M.mapKeys (qualify C.PrimRowList) primRowListClasses
       , M.mapKeys (qualify C.PrimSymbol) primSymbolClasses
       , M.mapKeys (qualify C.PrimTypeError) primTypeErrorClasses
-      , M.fromList (externs >>= \ExternsFile{..} -> mapMaybe (fromExternsDecl efModuleName) efDeclarations)
+      , M.fromList (externs >>= \ef -> mapMaybe (fromExternsDecl (efModuleName ef)) (externsFileDeclarations ef))
       ]
 
   fromExternsDecl
     :: ModuleName
-    -> ExternsDeclaration
+    -> ExternsDeclaration SourceAnn
     -> Maybe ((ModuleName, ProperName 'ClassName), TypeClassData)
   fromExternsDecl mn (EDClass name args members implies deps tcIsEmpty) = Just ((mn, name), typeClass) where
     typeClass = makeTypeClassData args members implies deps tcIsEmpty

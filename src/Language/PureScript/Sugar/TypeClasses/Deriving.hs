@@ -81,11 +81,11 @@ deriveInstances externs (Module ss coms mn ds exts) =
     -- removed until later, during type checking.
     synonyms :: SynonymMap
     synonyms =
-        M.fromList $ (externs >>= \ExternsFile{..} -> mapMaybe (fromExternsDecl efModuleName) efDeclarations)
+        M.fromList $ getExternsDeclarations fromExternsDecl externs
                   ++ mapMaybe fromLocalDecl ds
       where
-        fromExternsDecl mn' (EDTypeSynonym name args ty) = Just (Qualified (Just mn') name, (args, ty))
-        fromExternsDecl _ _ = Nothing
+        fromExternsDecl mn' (EDTypeSynonym name args ty) = [(Qualified (Just mn') name, (args, ty))]
+        fromExternsDecl _ _ = []
 
         fromLocalDecl (TypeSynonymDeclaration _ name args ty) =
           Just (Qualified (Just mn) name, (args, ty))
@@ -93,7 +93,7 @@ deriveInstances externs (Module ss coms mn ds exts) =
 
     instanceData :: NewtypeDerivedInstances
     instanceData =
-        foldMap (\ExternsFile{..} -> foldMap (fromExternsDecl efModuleName) efDeclarations) externs <> foldMap fromLocalDecl ds
+        getExternsDeclarations fromExternsDecl externs <> foldMap fromLocalDecl ds
       where
         fromExternsDecl mn' EDClass{..} =
           NewtypeDerivedInstances (M.singleton (mn', edClassName) (map fst edClassTypeArguments, edClassConstraints, edFunctionalDependencies)) mempty
@@ -106,6 +106,14 @@ deriveInstances externs (Module ss coms mn ds exts) =
         fromLocalDecl (TypeInstanceDeclaration _ _ _ _ _ cl tys _) =
           foldMap (\nm -> NewtypeDerivedInstances mempty (S.singleton (qualify mn cl, nm))) (extractNewtypeName mn tys)
         fromLocalDecl _ = mempty
+
+    getExternsDeclarations
+      :: Monoid a
+      => (ModuleName -> ExternsDeclaration SourceAnn -> a)
+      -> [ExternsFile]
+      -> a
+    getExternsDeclarations fromExternsDecl =
+      foldMap (\ef -> foldMap (fromExternsDecl (efModuleName ef)) (externsFileDeclarations ef))
 
 -- | Takes a declaration, and if the declaration is a deriving TypeInstanceDeclaration,
 -- elaborates that into an instance declaration via code generation.

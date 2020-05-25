@@ -82,7 +82,7 @@ externsEnv
   => Env
   -> ExternsFile
   -> m Env
-externsEnv env ExternsFile{..} = do
+externsEnv env ef@ExternsFile{..} = do
   let members = Exports{..}
       env' = M.insert efModuleName (efSourceSpan, nullImports, members) env
       fromEFImport (ExternsImport mn mt qmn) = (mn, [(efSourceSpan, Just mt, qmn)])
@@ -101,9 +101,9 @@ externsEnv env ExternsFile{..} = do
   exportedTypes :: M.Map (ProperName 'TypeName) ([ProperName 'ConstructorName], ExportSource)
   exportedTypes = M.fromList $ mapMaybe toExportedType efExports
     where
-    toExportedType (TypeRef _ tyCon dctors) = Just (tyCon, (fromMaybe (mapMaybe forTyCon efDeclarations) dctors, localExportSource))
+    toExportedType (TypeRef _ tyCon dctors) = Just (tyCon, (fromMaybe (mapMaybe forTyCon (externsFileDeclarations ef)) dctors, localExportSource))
       where
-      forTyCon :: ExternsDeclaration -> Maybe (ProperName 'ConstructorName)
+      forTyCon :: ExternsDeclaration SourceAnn -> Maybe (ProperName 'ConstructorName)
       forTyCon (EDDataConstructor pn _ tNm _ _) | tNm == tyCon = Just pn
       forTyCon _ = Nothing
     toExportedType _ = Nothing

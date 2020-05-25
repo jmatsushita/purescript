@@ -358,7 +358,7 @@ resolveInstances
   -> ModuleMap [IdeDeclarationAnn]
 resolveInstances externs declarations =
   Map.foldr (flip (foldr go)) declarations
-  . Map.mapWithKey (\mn ef -> mapMaybe (extractInstances mn) (efDeclarations ef))
+  . Map.mapWithKey (\mn ef -> mapMaybe (extractInstances mn) (externsFileDeclarations ef))
   $ externs
   where
     extractInstances mn P.EDInstance{..} =
