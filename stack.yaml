@@ -26,3 +26,5 @@ flags:
   these:
     assoc: false
     quickcheck: false
+  haskeline:
+    terminfo: false
