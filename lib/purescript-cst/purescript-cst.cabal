@@ -72,7 +72,7 @@ library
   default-extensions: BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies EmptyDataDecls FlexibleContexts FlexibleInstances GeneralizedNewtypeDeriving KindSignatures LambdaCase MultiParamTypeClasses NamedFieldPuns NoImplicitPrelude PatternGuards PatternSynonyms RankNTypes RecordWildCards OverloadedStrings ScopedTypeVariables TupleSections TypeFamilies ViewPatterns
   ghc-options: -Wall -O2
   build-tools:
-      happy ==1.19.9
+      happy ==1.19.12
   build-depends:
       array
     , base >=4.11 && <4.13
