@@ -81,7 +81,7 @@ common defaults
     TypeFamilies
     ViewPatterns
   build-tool-depends:
-    happy:happy ==1.19.9
+    happy:happy ==1.19.12
   build-depends:
     aeson >=1.0 && <1.5,
     aeson-better-errors >=0.8 && <0.10,
