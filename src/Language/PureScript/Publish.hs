@@ -19,7 +19,7 @@ module Language.PureScript.Publish
   , getModules
   ) where
 
-import Protolude hiding (stdin)
+import Protolude hiding (stdin, lines)
 
 import Control.Arrow ((***))
 import Control.Category ((>>>))
